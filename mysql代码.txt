@@ -1,0 +1,69 @@
+2.创建学会的视图
+select `s_u`.`unionname` AS `unionname`,count(`s_u`.`sno`) AS `unionpersonnum` from `s_u` group by `s_u`.`unionname`
+3.建立在学生表上的触发器（能根据每个班的学生变动情况自动增减班级表和系表的人数字段的值）
+auto_insert和auto_delete分别是自动增加和自动减少
+DELIMITER ;;
+CREATE TRIGGER `auto_insert` AFTER INSERT ON `student` FOR EACH ROW begin
+declare c int;
+set c=(select personnum from class where classno=new.classno);
+update class
+ set personnum=c+1
+where classno=new.classno;
+end
+;;
+DELIMITER ;
+DELIMITER ;;
+CREATE TRIGGER `auto_delete` AFTER DELETE ON `student` FOR EACH ROW begin
+declare c int;
+ set c=(select personnum from class where classno=old.classno);
+update class
+ set personnum=c-1
+ where classno=old.classno;
+end
+;;
+DELIMITER ;
+4.建立存储过程（给定一个班的旧班号和新班号，把所有相关表中此班的旧班号改为新班号，并返回此班的人数（使用输出参数））
+CREATE DEFINER=`root`@`localhost` FUNCTION `modifyclass`(oldclassno varchar(40),newclassno varchar(40)) RETURNS int(11)
+begin
+declare sum int default 0;
+update class
+set classno = newclassno
+where classno like oldclassno;
+select personnum
+into sum
+from class
+where classno like newclassno;
+return sum;
+end
+5.建立游标（确定系表中人数字段的值与实际学生数是否相符。如果不相符，把人数字段的值改为实际数，并在窗口打印此系的系号、系名、原人数、实际人数）
+CREATE DEFINER=`root`@`localhost` PROCEDURE `checknumber`()
+begin
+declare done int default 0;
+declare ActuallyTotal int default 0;
+declare OldTotal int default 0;
+declare local_name varchar(40) default '';
+declare mycursor cursor for 
+select systemname,systemnum
+from
+department;
+declare continue handler for sqlstate '02000' set done = 1;
+open mycursor;
+while done <> 1 do
+fetch next from mycursor into local_name,OldTotal;
+select sum(personnum)
+into ActuallyTotal
+from class
+where sys like local_name;
+if ActuallyTotal <> OldTotal then
+select systemno,systemname
+from department
+where systemname like local_name;
+select ActuallyTotal;
+select OldTotal;
+update department
+set systemnum = ActuallyTotal
+where systemname like local_name;
+end if;
+end while;
+close mycursor;
+end
